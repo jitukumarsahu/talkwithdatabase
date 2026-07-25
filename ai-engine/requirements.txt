@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+google-genai==0.3.0
+psycopg2-binary>=2.9.10
+pymongo
+python-dotenv
+pydantic

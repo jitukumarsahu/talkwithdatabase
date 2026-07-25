@@ -1,0 +1,26 @@
+{
+  "name": "db-copilot-gateway",
+  "version": "1.0.0",
+  "description": "API Gateway for Dynamic DB Copilot microservices",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [
+    "express",
+    "gateway",
+    "proxy",
+    "copilot"
+  ],
+  "author": "Antigravity",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "morgan": "^1.10.0"
+  }
+}
