@@ -327,6 +327,7 @@ export default function App() {
           setActionStatus({ type: 'warning', message: `API Key saved, but verification failed: ${data.error || 'Invalid key'}` });
         }
         setNewGeminiKey('');
+        setSettingsPassword('');
         fetchKeyStatus();
       } else {
         setActionStatus({ type: 'error', message: `Failed to save key: ${data.message || data.detail || 'Unknown error'}` });
@@ -736,7 +737,7 @@ export default function App() {
                       value={settingsPassword} 
                       onChange={(e) => setSettingsPassword(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                      placeholder="Enter password to authorize changes (e.g. Jitu@9178)..."
+                      placeholder="Enter password to authorize changes..."
                     />
                   </div>
 
