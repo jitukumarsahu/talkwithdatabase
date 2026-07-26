@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const authMiddleware = require('./middleware/auth');
 const apiLimiter = require('./middleware/rateLimiter');
 const copilotRoutes = require('./routes/copilot');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -34,6 +35,17 @@ app.get('/health', (req, res) => {
 // Protected Copilot Routes
 // Apply API Key Authentication and Rate Limiting
 app.use('/api/copilot', authMiddleware, apiLimiter, copilotRoutes);
+
+// Serve static files from the React frontend build
+app.use(express.static(path.join(__dirname, '../../frontend/dist')));
+
+// Serve React index.html for any unmatched routes (except API routes)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
+});
 
 // 404 Handler
 app.use((req, res) => {

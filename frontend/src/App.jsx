@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Database, 
   MessageSquare, 
   Settings, 
   Play, 
-  CheckCircle2, 
-  XCircle, 
   AlertCircle, 
   Trash2, 
   Plus, 
@@ -16,7 +14,6 @@ import {
   Terminal, 
   Table,
   HelpCircle,
-  Sparkles,
   Info,
   Layers,
   ArrowRight
@@ -204,10 +201,11 @@ function renderFormattedContent(content) {
 }
 
 export default function App() {
-  // Config & Gateway settings
-  const [gatewayUrl, setGatewayUrl] = useState(() => localStorage.getItem('gateway_url') || 'http://localhost:5000');
-  const [gatewayKey, setGatewayKey] = useState(() => localStorage.getItem('gateway_key') || 'dev-secret-key-123');
+  // Config & Gateway settings (loaded from environment)
+  const gatewayUrl = import.meta.env.VITE_GATEWAY_URL || window.location.origin;
+  const gatewayKey = import.meta.env.VITE_GATEWAY_KEY || 'dev-secret-key-123';
   const [showConfig, setShowConfig] = useState(false);
+  const [settingsPassword, setSettingsPassword] = useState('');
 
   // Server Gemini API Key Config states
   const [keyStatus, setKeyStatus] = useState('missing'); // 'configured' | 'invalid' | 'missing'
@@ -245,14 +243,7 @@ export default function App() {
 
   const messagesEndRef = useRef(null);
 
-  // Save config values
-  useEffect(() => {
-    localStorage.setItem('gateway_url', gatewayUrl);
-  }, [gatewayUrl]);
 
-  useEffect(() => {
-    localStorage.setItem('gateway_key', gatewayKey);
-  }, [gatewayKey]);
 
   useEffect(() => {
     localStorage.setItem('db_connections', JSON.stringify(connections));
@@ -264,7 +255,7 @@ export default function App() {
     }
   }, [chats, activeConnectionId]);
 
-  const fetchKeyStatus = async () => {
+  const fetchKeyStatus = useCallback(async () => {
     try {
       const response = await fetch(`${gatewayUrl}/api/copilot/config/key/status`, {
         headers: {
@@ -280,14 +271,14 @@ export default function App() {
     } catch (err) {
       console.error("Failed to fetch Gemini key status", err);
     }
-  };
+  }, [gatewayUrl, gatewayKey]);
 
   useEffect(() => {
     if (showConfig) {
       setActionStatus({ type: '', message: '' });
       fetchKeyStatus();
     }
-  }, [showConfig, gatewayUrl, gatewayKey]);
+  }, [showConfig, fetchKeyStatus]);
 
   const handleTestKey = async () => {
     if (!newGeminiKey.trim()) return;
@@ -300,13 +291,13 @@ export default function App() {
           'Content-Type': 'application/json',
           'x-api-key': gatewayKey
         },
-        body: JSON.stringify({ gemini_api_key: newGeminiKey })
+        body: JSON.stringify({ gemini_api_key: newGeminiKey, password: settingsPassword })
       });
       const data = await response.json();
       if (response.ok && data.valid) {
         setActionStatus({ type: 'success', message: 'Verification successful! This is a valid Gemini key.' });
       } else {
-        setActionStatus({ type: 'error', message: `Verification failed: ${data.message || 'Invalid key.'}` });
+        setActionStatus({ type: 'error', message: `Verification failed: ${data.message || data.detail || 'Invalid key.'}` });
       }
     } catch (err) {
       setActionStatus({ type: 'error', message: `Network error: ${err.message}` });
@@ -326,7 +317,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'x-api-key': gatewayKey
         },
-        body: JSON.stringify({ gemini_api_key: newGeminiKey })
+        body: JSON.stringify({ gemini_api_key: newGeminiKey, password: settingsPassword })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -338,7 +329,7 @@ export default function App() {
         setNewGeminiKey('');
         fetchKeyStatus();
       } else {
-        setActionStatus({ type: 'error', message: `Failed to save key: ${data.message || 'Unknown error'}` });
+        setActionStatus({ type: 'error', message: `Failed to save key: ${data.message || data.detail || 'Unknown error'}` });
       }
     } catch (err) {
       setActionStatus({ type: 'error', message: `Network error: ${err.message}` });
@@ -357,7 +348,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'x-api-key': gatewayKey
         },
-        body: JSON.stringify({ gemini_api_key: '' })
+        body: JSON.stringify({ gemini_api_key: '', password: settingsPassword })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -365,7 +356,7 @@ export default function App() {
         setNewGeminiKey('');
         fetchKeyStatus();
       } else {
-        setActionStatus({ type: 'error', message: `Failed to clear key: ${data.message || 'Unknown error'}` });
+        setActionStatus({ type: 'error', message: `Failed to clear key: ${data.message || data.detail || 'Unknown error'}` });
       }
     } catch (err) {
       setActionStatus({ type: 'error', message: `Network error: ${err.message}` });
@@ -674,13 +665,7 @@ export default function App() {
         </div>
 
         <div className="flex items-center space-x-4">
-          <button 
-            onClick={handleDemoMode}
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500/10 to-yellow-500/10 hover:from-amber-500/20 hover:to-yellow-500/20 border border-amber-500/30 text-amber-300 font-medium rounded-lg text-xs transition duration-200"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Try Demo Mode</span>
-          </button>
+
           
           <button 
             onClick={() => setShowConfig(!showConfig)}
@@ -702,38 +687,8 @@ export default function App() {
         {/* Settings Modal Bar */}
         {showConfig && (
           <div className="absolute top-0 right-0 left-0 bg-slate-900 border-b border-slate-805 px-6 py-5 z-30 shadow-2xl animate-in slide-in-from-top duration-200">
-            <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Column 1: Local Gateway Connection */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-bold text-slate-305 uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center">
-                  <Settings className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
-                  API Gateway Settings (Local)
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Gateway Endpoint</label>
-                    <input 
-                      type="text" 
-                      value={gatewayUrl} 
-                      onChange={(e) => setGatewayUrl(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                      placeholder="http://localhost:5000"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Gateway Auth Key (x-api-key)</label>
-                    <input 
-                      type="password" 
-                      value={gatewayKey} 
-                      onChange={(e) => setGatewayKey(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                      placeholder="secret-key"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Column 2: Server Gemini API Key Connection */}
+            <div className="max-w-xl mx-auto space-y-4">
+              {/* Server Gemini API Key Connection */}
               <div className="space-y-4">
                 <h3 className="text-xs font-bold text-slate-305 uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center justify-between">
                   <span className="flex items-center">
@@ -769,14 +724,20 @@ export default function App() {
                         className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
                         placeholder="Enter new Gemini API Key..."
                       />
-                      <button 
-                        onClick={handleTestKey}
-                        disabled={testLoading || !newGeminiKey.trim()}
-                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 font-semibold rounded-lg text-xs transition duration-200"
-                      >
-                        {testLoading ? 'Testing...' : 'Test'}
-                      </button>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                      Settings Password
+                    </label>
+                    <input 
+                      type="password" 
+                      value={settingsPassword} 
+                      onChange={(e) => setSettingsPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
+                      placeholder="Enter password to authorize changes (e.g. Jitu@9178)..."
+                    />
                   </div>
 
                   {/* Status/Warning Log banner */}
@@ -794,15 +755,23 @@ export default function App() {
                     {keyStatus !== 'missing' && (
                       <button 
                         onClick={handleClearKey}
-                        className="px-3.5 py-1.5 bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 text-rose-400 font-semibold rounded-lg text-xs transition duration-200"
+                        disabled={!settingsPassword}
+                        className="px-3.5 py-1.5 bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 disabled:opacity-30 disabled:cursor-not-allowed text-rose-400 font-semibold rounded-lg text-xs transition duration-200"
                       >
                         Clear Key
                       </button>
                     )}
                     <button 
+                      onClick={handleTestKey}
+                      disabled={testLoading || !newGeminiKey.trim() || !settingsPassword}
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 font-semibold rounded-lg text-xs transition duration-200"
+                    >
+                      {testLoading ? 'Testing...' : 'Test Key'}
+                    </button>
+                    <button 
                       onClick={handleSaveKey}
-                      disabled={saveLoading || !newGeminiKey.trim()}
-                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition duration-200"
+                      disabled={saveLoading || !newGeminiKey.trim() || !settingsPassword}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition duration-200"
                     >
                       {saveLoading ? 'Saving...' : 'Save & Apply'}
                     </button>
@@ -811,7 +780,7 @@ export default function App() {
               </div>
             </div>
             
-            <div className="max-w-6xl mx-auto flex justify-end mt-4 pt-3 border-t border-slate-800/60">
+            <div className="max-w-xl mx-auto flex justify-end mt-4 pt-3 border-t border-slate-800/60">
               <button 
                 onClick={() => setShowConfig(false)}
                 className="bg-indigo-600 hover:bg-indigo-500 px-5 py-1.5 rounded-lg text-xs font-semibold text-white transition duration-200"
@@ -1188,7 +1157,7 @@ export default function App() {
                                 {showAttemptsLogId === msg.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                               </button>
                               
-                              {showAttemptsLogId === msg.id && (
+                              {(showAttemptsLogId === msg.id || msg.attempts.length > 1) && (
                                 <div className="p-3 bg-slate-950/60 border-t border-slate-900 space-y-3">
                                   {msg.attempts.map((att, idx) => (
                                     <div key={idx} className="relative pl-5 border-l border-slate-800 pb-1.5 last:pb-0">
@@ -1238,15 +1207,9 @@ export default function App() {
             )}
             {queryLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 rounded-bl-none shadow-md flex items-center space-x-3.5 text-xs text-slate-400">
-                  <div className="relative">
-                    <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                    <Cpu className="w-3.5 h-3.5 text-indigo-400 absolute top-1.25 left-1.25 animate-pulse" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="font-semibold text-slate-300">Gemini AI Thinking...</p>
-                    <p className="text-[10px] text-slate-500">Checking safety guardrails & running self-healer loop</p>
-                  </div>
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 px-4 rounded-bl-none shadow-md flex items-center space-x-3 text-xs text-slate-400">
+                  <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <span className="font-semibold text-slate-300">Thinking...</span>
                 </div>
               </div>
             )}

@@ -47,9 +47,11 @@ class QueryRequest(BaseModel):
 
 class UpdateKeyRequest(BaseModel):
     gemini_api_key: str = Field(default="", description="The new Gemini API Key to set")
+    password: str = Field(..., description="Settings password required to modify server config")
 
 class TestKeyRequest(BaseModel):
     gemini_api_key: str = Field(..., description="The Gemini API Key to validate")
+    password: str = Field(..., description="Settings password required to test key")
 
 def validate_key(api_key: str) -> tuple[bool, str | None]:
     """Tests if a Gemini API Key is valid by attempting a lightweight API call."""
@@ -181,9 +183,16 @@ def get_key_status():
         "error_message": err
     }
 
+SETTINGS_PASSWORD = "Jitu@9178"
+
 @app.post("/api/config/key/test")
 def test_gemini_key(payload: TestKeyRequest):
     """Checks the validity of a proposed GEMINI_API_KEY without saving it."""
+    if payload.password != SETTINGS_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Incorrect settings password."
+        )
     is_valid, err = validate_key(payload.gemini_api_key)
     return {
         "valid": is_valid,
@@ -193,6 +202,11 @@ def test_gemini_key(payload: TestKeyRequest):
 @app.post("/api/config/key")
 def update_gemini_key(payload: UpdateKeyRequest):
     """Updates the GEMINI_API_KEY in the .env file and reloads it in-memory."""
+    if payload.password != SETTINGS_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Incorrect settings password."
+        )
     api_key = payload.gemini_api_key.strip()
     
     # If the key is empty, clear it
