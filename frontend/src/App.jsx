@@ -16,7 +16,11 @@ import {
   HelpCircle,
   Info,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Sun,
+  Moon,
+  Menu,
+  X
 } from 'lucide-react';
 
 // Setup Mock Data for instant demo
@@ -191,13 +195,145 @@ const MOCK_CHAT_RESPONSE_MONGO = {
 // Helper to render simple markdown bold formatting (e.g. **bold**) as inline tags
 function renderFormattedContent(content) {
   if (!content) return null;
-  const parts = content.split(/(\*\*[^*]+\*\*)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={index} className="font-extrabold text-indigo-300 bg-indigo-950/40 px-1 py-0.5 rounded border border-indigo-500/20">{part.slice(2, -2)}</strong>;
+
+  // Split into lines
+  const lines = content.split('\n');
+  const blocks = [];
+  let currentTable = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Check if it's a table line: starts with | and ends with | (or at least contains |)
+    const isTableLine = trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.length > 1;
+
+    if (isTableLine) {
+      if (!currentTable) {
+        currentTable = {
+          headers: [],
+          rows: [],
+          alignments: []
+        };
+      }
+      
+      // Parse columns
+      const cols = trimmed
+        .split('|')
+        .slice(1, -1) // remove empty elements from starting and ending |
+        .map(c => c.trim());
+
+      // If it's the header row (first row of currentTable)
+      if (currentTable.headers.length === 0) {
+        currentTable.headers = cols;
+      } 
+      // If it's the separator row (e.g. contains hyphens)
+      else if (cols.every(col => /^[:\s-]*$/.test(col))) {
+        // Parse alignment from separator (e.g. :--- is left, ---: is right, :---: is center)
+        currentTable.alignments = cols.map(col => {
+          if (col.startsWith(':') && col.endsWith(':')) return 'center';
+          if (col.endsWith(':')) return 'right';
+          return 'left';
+        });
+      } 
+      // If it's a regular data row
+      else {
+        currentTable.rows.push(cols);
+      }
+    } else {
+      // If we had a table accumulating, push it to blocks first
+      if (currentTable) {
+        if (currentTable.headers.length > 0) {
+          blocks.push({ type: 'table', data: currentTable });
+        }
+        currentTable = null;
+      }
+      
+      // Push regular line
+      blocks.push({ type: 'text', data: line });
     }
-    return part;
-  });
+  }
+
+  // Push final table if any
+  if (currentTable && currentTable.headers.length > 0) {
+    blocks.push({ type: 'table', data: currentTable });
+  }
+
+  // Helper to render inline formatting like bold
+  const renderInline = (text) => {
+    if (!text) return '';
+    const parts = text.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, index) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return (
+          <strong key={index} className="font-extrabold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 px-1 py-0.5 rounded border border-indigo-200 dark:border-indigo-500/20">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
+  };
+
+  // Render all blocks
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, bIdx) => {
+        if (block.type === 'table') {
+          const { headers, rows, alignments } = block.data;
+          return (
+            <div key={bIdx} className="my-3 overflow-x-auto w-full border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900/60 shadow-sm">
+              <table className="w-full text-left border-collapse text-[11px] min-w-[500px]">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
+                    {headers.map((header, hIdx) => {
+                      const align = alignments[hIdx] || 'left';
+                      return (
+                        <th 
+                          key={hIdx} 
+                          className="px-3 py-2 font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider"
+                          style={{ textAlign: align }}
+                        >
+                          {renderInline(header)}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {rows.map((row, rIdx) => (
+                    <tr key={rIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition">
+                      {row.map((cell, cIdx) => {
+                        const align = alignments[cIdx] || 'left';
+                        return (
+                          <td 
+                            key={cIdx} 
+                            className="px-3 py-1.5 text-slate-600 dark:text-slate-400 font-medium"
+                            style={{ textAlign: align }}
+                          >
+                            {renderInline(cell)}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
+        if (block.data.trim() === '') {
+          return <div key={bIdx} className="h-1" />;
+        }
+        return (
+          <p key={bIdx} className="leading-relaxed whitespace-pre-wrap">
+            {renderInline(block.data)}
+          </p>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function App() {
@@ -206,6 +342,8 @@ export default function App() {
   const gatewayKey = import.meta.env.VITE_GATEWAY_KEY || 'dev-secret-key-123';
   const [showConfig, setShowConfig] = useState(false);
   const [settingsPassword, setSettingsPassword] = useState('');
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Server Gemini API Key Config states
   const [keyStatus, setKeyStatus] = useState('missing'); // 'configured' | 'invalid' | 'missing'
@@ -224,7 +362,7 @@ export default function App() {
   const [activeConnectionId, setActiveConnectionId] = useState(null);
   
   const [newConnName, setNewConnName] = useState('');
-  const [newConnType, setNewConnType] = useState('postgres');
+  const [newConnType, setNewConnType] = useState('mongodb');
   const [newConnUri, setNewConnUri] = useState('');
   
   const [introspectLoading, setIntrospectLoading] = useState(false);
@@ -254,6 +392,15 @@ export default function App() {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chats, activeConnectionId]);
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   const fetchKeyStatus = useCallback(async () => {
     try {
@@ -647,33 +794,47 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#0f172a] text-slate-100 font-sans antialiased overflow-hidden">
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0f172a] text-slate-800 dark:text-slate-100 font-sans antialiased overflow-hidden">
       {/* Top Header */}
-      <header className="flex justify-between items-center px-6 py-4 bg-slate-900 border-b border-slate-800 shrink-0">
+      <header className="flex justify-between items-center px-4 md:px-6 py-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0">
         <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+            className="p-2 rounded-lg md:hidden border bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+            title="Toggle Menu"
+          >
+            {mobileSidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </button>
+
           <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/20">
             <Cpu className="w-5 h-5 text-white animate-pulse" />
           </div>
           <div>
-            <h1 className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">
+            <h1 className="font-bold text-base md:text-lg tracking-tight bg-gradient-to-r from-slate-900 via-slate-700 to-indigo-600 dark:from-white dark:via-slate-100 dark:to-indigo-200 bg-clip-text text-transparent">
               Dynamic DB Copilot
             </h1>
-            <p className="text-xs text-slate-400 font-medium flex items-center">
+            <p className="text-[10px] md:text-xs text-slate-505 dark:text-slate-400 font-medium flex items-center">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-ping"></span>
               Multi-Service AI Engine
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-4">
-
+        <div className="flex items-center space-x-2 md:space-x-3">
+          <button 
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="p-2 rounded-lg transition duration-200 border bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+            title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-605" />}
+          </button>
           
           <button 
             onClick={() => setShowConfig(!showConfig)}
             className={`p-2 rounded-lg transition duration-200 border ${
               showConfig 
-                ? 'bg-indigo-600 border-indigo-500 text-white' 
-                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                ? 'bg-indigo-650 border-indigo-500 text-white' 
+                : 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
             }`}
             title="Gateway API Configuration"
           >
@@ -687,117 +848,129 @@ export default function App() {
         
         {/* Settings Modal Bar */}
         {showConfig && (
-          <div className="absolute top-0 right-0 left-0 bg-slate-900 border-b border-slate-805 px-6 py-5 z-30 shadow-2xl animate-in slide-in-from-top duration-200">
-            <div className="max-w-xl mx-auto space-y-4">
-              {/* Server Gemini API Key Connection */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-bold text-slate-305 uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center justify-between">
-                  <span className="flex items-center">
-                    <Cpu className="w-3.5 h-3.5 mr-1.5 text-purple-400" />
-                    Gemini API Key (Server Config)
-                  </span>
-                  {/* Status Badge */}
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                    keyStatus === 'configured' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                    keyStatus === 'invalid' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                    'bg-slate-800 text-slate-400 border-slate-700'
-                  }`}>
-                    {keyStatus === 'configured' ? 'Active' : keyStatus === 'invalid' ? 'Invalid/Expired' : 'Not Set'}
-                  </span>
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Masked Key: <span className="font-mono text-slate-300 font-normal">{maskedKey}</span>
-                      </label>
-                      {keyError && (
-                        <span className="text-[10px] text-rose-400 italic font-medium truncate max-w-[200px]" title={keyError}>
-                          {keyError}
-                        </span>
-                      )}
+          <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+              <div className="p-6 overflow-y-auto space-y-4">
+                {/* Server Gemini API Key Connection */}
+                <div className="space-y-4">
+                  <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 pb-2 flex items-center justify-between">
+                    <span className="flex items-center">
+                      <Cpu className="w-3.5 h-3.5 mr-1.5 text-purple-600 dark:text-purple-400" />
+                      Gemini API Key (Server Config)
+                    </span>
+                    {/* Status Badge */}
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                      keyStatus === 'configured' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' :
+                      keyStatus === 'invalid' ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20' :
+                      'bg-slate-100 dark:bg-slate-800 text-slate-550 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                    }`}>
+                      {keyStatus === 'configured' ? 'Active' : keyStatus === 'invalid' ? 'Invalid/Expired' : 'Not Set'}
+                    </span>
+                  </h3>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          Masked Key: <span className="font-mono text-slate-700 dark:text-slate-300 font-normal">{maskedKey}</span>
+                        </label>
+                        {keyError && (
+                          <span className="text-[10px] text-rose-500 dark:text-rose-400 italic font-medium truncate max-w-[200px]" title={keyError}>
+                            {keyError}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex space-x-2">
+                        <input 
+                          type="password" 
+                          value={newGeminiKey} 
+                          onChange={(e) => setNewGeminiKey(e.target.value)}
+                          className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 font-mono focus:border-indigo-500 focus:outline-none transition"
+                          placeholder="Enter new Gemini API Key..."
+                        />
+                      </div>
                     </div>
-                    <div className="flex space-x-2">
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                        Settings Password
+                      </label>
                       <input 
                         type="password" 
-                        value={newGeminiKey} 
-                        onChange={(e) => setNewGeminiKey(e.target.value)}
-                        className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                        placeholder="Enter new Gemini API Key..."
+                        value={settingsPassword} 
+                        onChange={(e) => setSettingsPassword(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 font-mono focus:border-indigo-500 focus:outline-none transition"
+                        placeholder="Enter password to authorize changes..."
                       />
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      Settings Password
-                    </label>
-                    <input 
-                      type="password" 
-                      value={settingsPassword} 
-                      onChange={(e) => setSettingsPassword(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono focus:border-indigo-500 focus:outline-none"
-                      placeholder="Enter password to authorize changes..."
-                    />
-                  </div>
-
-                  {/* Status/Warning Log banner */}
-                  {actionStatus.message && (
-                    <div className={`p-2.5 rounded-lg border text-[11px] font-medium flex items-center space-x-2 ${
-                      actionStatus.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' :
-                      actionStatus.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-300' :
-                      'bg-rose-500/10 border-rose-500/20 text-rose-305'
-                    }`}>
-                      <span>{actionStatus.message}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end space-x-2">
-                    {keyStatus !== 'missing' && (
-                      <button 
-                        onClick={handleClearKey}
-                        disabled={!settingsPassword}
-                        className="px-3.5 py-1.5 bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 disabled:opacity-30 disabled:cursor-not-allowed text-rose-400 font-semibold rounded-lg text-xs transition duration-200"
-                      >
-                        Clear Key
-                      </button>
+                    {/* Status/Warning Log banner */}
+                    {actionStatus.message && (
+                      <div className={`p-2.5 rounded-lg border text-[11px] font-medium flex items-center space-x-2 ${
+                        actionStatus.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-300' :
+                        actionStatus.type === 'warning' ? 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-300' :
+                        'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-300'
+                      }`}>
+                        <span>{actionStatus.message}</span>
+                      </div>
                     )}
-                    <button 
-                      onClick={handleTestKey}
-                      disabled={testLoading || !newGeminiKey.trim() || !settingsPassword}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 font-semibold rounded-lg text-xs transition duration-200"
-                    >
-                      {testLoading ? 'Testing...' : 'Test Key'}
-                    </button>
-                    <button 
-                      onClick={handleSaveKey}
-                      disabled={saveLoading || !newGeminiKey.trim() || !settingsPassword}
-                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition duration-200"
-                    >
-                      {saveLoading ? 'Saving...' : 'Save & Apply'}
-                    </button>
+
+                    <div className="flex justify-end space-x-2 pt-2">
+                      {keyStatus !== 'missing' && (
+                        <button 
+                          onClick={handleClearKey}
+                          disabled={!settingsPassword}
+                          className="px-3.5 py-1.5 bg-rose-600/10 hover:bg-rose-600/20 border border-rose-500/20 disabled:opacity-30 disabled:cursor-not-allowed text-rose-600 dark:text-rose-400 font-semibold rounded-lg text-xs transition duration-200"
+                        >
+                          Clear Key
+                        </button>
+                      )}
+                      <button 
+                        onClick={handleTestKey}
+                        disabled={testLoading || !newGeminiKey.trim() || !settingsPassword}
+                        className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-205 dark:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs transition duration-200"
+                      >
+                        {testLoading ? 'Testing...' : 'Test Key'}
+                      </button>
+                      <button 
+                        onClick={handleSaveKey}
+                        disabled={saveLoading || !newGeminiKey.trim() || !settingsPassword}
+                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition duration-200"
+                      >
+                        {saveLoading ? 'Saving...' : 'Save & Apply'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-            
-            <div className="max-w-xl mx-auto flex justify-end mt-4 pt-3 border-t border-slate-800/60">
-              <button 
-                onClick={() => setShowConfig(false)}
-                className="bg-indigo-600 hover:bg-indigo-500 px-5 py-1.5 rounded-lg text-xs font-semibold text-white transition duration-200"
-              >
-                Close Settings
-              </button>
+              
+              <div className="px-6 py-4 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800/60 flex justify-end shrink-0">
+                <button 
+                  onClick={() => setShowConfig(false)}
+                  className="bg-indigo-600 hover:bg-indigo-500 px-5 py-1.5 rounded-lg text-xs font-semibold text-white transition duration-200"
+                >
+                  Close Settings
+                </button>
+              </div>
             </div>
           </div>
         )}
 
+        {/* Mobile Sidebar Backdrop Overlay */}
+        {mobileSidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-slate-900/40 dark:bg-black/45 backdrop-blur-xs z-30 md:hidden"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+        )}
+
         {/* Sidebar Panel: Databases & Schemas */}
-        <aside className="w-80 bg-slate-900/60 border-r border-slate-800/80 flex flex-col shrink-0 overflow-y-auto">
+        <aside className={`fixed md:relative top-0 bottom-0 left-0 h-full md:h-auto w-72 md:w-80 bg-white dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800/80 flex flex-col shrink-0 overflow-y-auto z-40 transition-transform duration-300 ease-in-out md:translate-x-0 ${
+          mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}>
           {/* Section: Add Connection */}
-          <div className="p-4 border-b border-slate-800/80">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center">
-              <Database className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80">
+            <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center">
+              <Database className="w-3.5 h-3.5 mr-1.5 text-indigo-505 dark:text-indigo-400" />
               Add Connection
             </h2>
             <form onSubmit={handleAddConnection} className="space-y-3">
@@ -807,46 +980,46 @@ export default function App() {
                   placeholder="Connection name (e.g. Sales DB)"
                   value={newConnName}
                   onChange={(e) => setNewConnName(e.target.value)}
-                  className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-indigo-500 focus:outline-none transition"
+                  className="w-full bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 focus:border-indigo-500 focus:outline-none transition"
                   required
                 />
               </div>
               <div className="flex space-x-2">
                 <button
                   type="button"
-                  onClick={() => setNewConnType('postgres')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${
-                    newConnType === 'postgres'
-                      ? 'bg-indigo-600/10 border-indigo-500 text-indigo-300'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Postgres
-                </button>
-                <button
-                  type="button"
                   onClick={() => setNewConnType('mongodb')}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${
                     newConnType === 'mongodb'
-                      ? 'bg-indigo-600/10 border-indigo-500 text-indigo-300'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'bg-indigo-50 dark:bg-indigo-600/10 border-indigo-500 text-indigo-600 dark:text-indigo-300'
+                      : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                   }`}
                 >
                   MongoDB
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewConnType('postgres')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition ${
+                    newConnType === 'postgres'
+                      ? 'bg-indigo-50 dark:bg-indigo-600/10 border-indigo-500 text-indigo-600 dark:text-indigo-300'
+                      : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Postgres
                 </button>
               </div>
               <div className="relative">
                 <input 
                   type="text"
-                  placeholder="URI String (or type 'mock' for Demo)"
+                  placeholder="URI String for connection"
                   value={newConnUri}
                   onChange={(e) => setNewConnUri(e.target.value)}
-                  className="w-full bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 font-mono placeholder-slate-500 focus:border-indigo-500 focus:outline-none transition pr-8"
+                  className="w-full bg-white dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-slate-200 font-mono placeholder-slate-400 dark:placeholder-slate-500 focus:border-indigo-500 focus:outline-none transition pr-8"
                   required
                 />
                 <div className="absolute right-2.5 top-2.5 group cursor-help">
-                  <HelpCircle className="w-3.5 h-3.5 text-slate-500 hover:text-slate-300" />
-                  <span className="absolute bottom-full right-0 w-48 hidden group-hover:block bg-slate-900 border border-slate-700 text-slate-300 text-[10px] p-2 rounded shadow-xl z-50">
+                  <HelpCircle className="w-3.5 h-3.5 text-slate-455 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300" />
+                  <span className="absolute bottom-full right-0 w-48 hidden group-hover:block bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] p-2 rounded shadow-xl z-50">
                     Use full URI format: <br/>
                     - Postgres: postgresql://user:pass@host:port/db <br/>
                     - MongoDB: mongodb+srv://user:pass@cluster.net/db <br/>
@@ -856,7 +1029,7 @@ export default function App() {
               </div>
               <button
                 type="submit"
-                className="w-full flex items-center justify-center space-x-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition duration-200 hover:shadow-lg hover:shadow-indigo-500/10"
+                className="w-full flex items-center justify-center space-x-1 py-2 bg-indigo-600 hover:bg-indigo-505 dark:hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition duration-200 hover:shadow-lg hover:shadow-indigo-500/10"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Connect Database</span>
@@ -865,17 +1038,17 @@ export default function App() {
           </div>
 
           {/* Section: Connections List */}
-          <div className="p-4 border-b border-slate-800/80">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800/80">
+            <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
               My Databases
             </h2>
             {connections.length === 0 ? (
-              <div className="text-center py-6 text-slate-500 border border-dashed border-slate-800 rounded-xl">
+              <div className="text-center py-6 text-slate-400 dark:text-slate-505 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
                 <Database className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
                 <p className="text-[11px]">No active database connections.</p>
                 <button 
                   onClick={handleDemoMode}
-                  className="text-xs text-indigo-400 font-semibold mt-1.5 hover:underline"
+                  className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold mt-1.5 hover:underline"
                 >
                   Quick Setup Demo
                 </button>
@@ -890,23 +1063,23 @@ export default function App() {
                       onClick={() => handleConnect(conn)}
                       className={`group flex justify-between items-center p-2.5 rounded-lg border cursor-pointer transition ${
                         isActive
-                          ? 'bg-slate-800 border-indigo-500/50 shadow-md'
-                          : 'bg-slate-950/40 border-slate-800 hover:bg-slate-800/30'
+                          ? 'bg-slate-100 dark:bg-slate-800 border-indigo-505/50 dark:border-indigo-500/50 shadow-md'
+                          : 'bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/30'
                       }`}
                     >
                       <div className="flex items-center space-x-2.5 overflow-hidden">
                         <div className={`w-2 h-2 rounded-full shrink-0 ${
                           conn.status === 'connected' ? 'bg-emerald-500' :
-                          conn.status === 'error' ? 'bg-rose-500' : 'bg-slate-600'
+                          conn.status === 'error' ? 'bg-rose-500' : 'bg-slate-400 dark:bg-slate-600'
                         }`} />
                         <div className="overflow-hidden">
-                          <p className="text-xs font-semibold truncate text-slate-200">{conn.name}</p>
-                          <p className="text-[10px] text-slate-500 truncate font-mono">{conn.type.toUpperCase()}</p>
+                          <p className="text-xs font-semibold truncate text-slate-800 dark:text-slate-200">{conn.name}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-mono">{conn.type.toUpperCase()}</p>
                         </div>
                       </div>
                       <button 
                         onClick={(e) => handleDeleteConnection(conn.id, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-400 rounded transition"
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 rounded transition"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -920,14 +1093,14 @@ export default function App() {
           {/* Section: Schema Explorer */}
           <div className="flex-1 p-4">
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center">
-                <Layers className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
+              <h2 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center">
+                <Layers className="w-3.5 h-3.5 mr-1.5 text-indigo-505 dark:text-indigo-400" />
                 Schema Explorer
               </h2>
               {activeConnection && activeConnection.status === 'connected' && (
                 <button 
                   onClick={() => handleConnect(activeConnection)} 
-                  className="p-1 hover:bg-slate-800 rounded transition text-slate-400 hover:text-slate-200"
+                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                   title="Reload Schema"
                 >
                   <RefreshCw className={`w-3 h-3 ${introspectLoading ? 'animate-spin' : ''}`} />
@@ -937,12 +1110,12 @@ export default function App() {
 
             {introspectLoading ? (
               <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-                <RefreshCw className="w-6 h-6 animate-spin mb-2 text-indigo-400" />
+                <RefreshCw className="w-6 h-6 animate-spin mb-2 text-indigo-500 dark:text-indigo-400" />
                 <p className="text-xs">Analyzing tables & schema...</p>
               </div>
             ) : introspectionError ? (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-lg text-[11px] flex items-start space-x-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-300 rounded-lg text-[11px] flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400" />
                 <span>{introspectionError}</span>
               </div>
             ) : !activeConnection ? (
@@ -956,22 +1129,22 @@ export default function App() {
                       const tableKey = `${activeConnection.id}-${table.name}`;
                       const isExpanded = !!expandedTables[tableKey];
                       return (
-                        <div key={table.name} className="border border-slate-800/80 rounded-lg bg-slate-950/20 overflow-hidden">
+                        <div key={table.name} className="border border-slate-200 dark:border-slate-800/80 rounded-lg bg-slate-50 dark:bg-slate-950/20 overflow-hidden">
                           <button
                             onClick={() => toggleTable(tableKey)}
-                            className="w-full flex items-center justify-between p-2 hover:bg-slate-800/40 transition text-left"
+                            className="w-full flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition text-left"
                           >
                             <div className="flex items-center space-x-2">
-                              <Table className="w-3.5 h-3.5 text-indigo-400" />
-                              <span className="text-xs font-semibold text-slate-300">{table.name}</span>
+                              <Table className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{table.name}</span>
                             </div>
-                            {isExpanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />}
+                            {isExpanded ? <ChevronDown className="w-3 h-3 text-slate-550 dark:text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-550 dark:text-slate-500" />}
                           </button>
                           {isExpanded && (
-                            <div className="px-3 pb-2 border-t border-slate-900 bg-slate-950/40 text-[10px] divide-y divide-slate-900/60">
+                            <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-900 bg-white dark:bg-slate-950/40 text-[10px] divide-y divide-slate-100 dark:divide-slate-900/60">
                               {table.columns.map(col => (
                                 <div key={col.name} className="flex justify-between py-1.5">
-                                  <span className="font-mono text-slate-400">{col.name}</span>
+                                  <span className="font-mono text-slate-600 dark:text-slate-400">{col.name}</span>
                                   <span className="text-slate-500 italic">{col.type}</span>
                                 </div>
                               ))}
@@ -990,23 +1163,23 @@ export default function App() {
                       const colKey = `${activeConnection.id}-${col.name}`;
                       const isExpanded = !!expandedTables[colKey];
                       return (
-                        <div key={col.name} className="border border-slate-800/80 rounded-lg bg-slate-950/20 overflow-hidden">
+                        <div key={col.name} className="border border-slate-200 dark:border-slate-800/80 rounded-lg bg-slate-50 dark:bg-slate-950/20 overflow-hidden">
                           <button
                             onClick={() => toggleTable(colKey)}
-                            className="w-full flex items-center justify-between p-2 hover:bg-slate-800/40 transition text-left"
+                            className="w-full flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition text-left"
                           >
                             <div className="flex items-center space-x-2">
-                              <Layers className="w-3.5 h-3.5 text-purple-400" />
-                              <span className="text-xs font-semibold text-slate-300">{col.name}</span>
+                              <Layers className="w-3.5 h-3.5 text-purple-650 dark:text-purple-400" />
+                              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{col.name}</span>
                             </div>
-                            {isExpanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />}
+                            {isExpanded ? <ChevronDown className="w-3 h-3 text-slate-550 dark:text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-550 dark:text-slate-500" />}
                           </button>
                           {isExpanded && (
-                            <div className="px-3 pb-2 border-t border-slate-900 bg-slate-950/40 text-[10px] divide-y divide-slate-900/60">
+                            <div className="px-3 pb-2 border-t border-slate-200 dark:border-slate-900 bg-white dark:bg-slate-950/40 text-[10px] divide-y divide-slate-100 dark:divide-slate-900/60">
                               {Object.entries(col.fields).map(([fieldName, fieldData]) => (
                                 <div key={fieldName} className="flex justify-between py-1.5">
-                                  <span className="font-mono text-slate-400">{fieldName}</span>
-                                  <span className="text-purple-400 italic">
+                                  <span className="font-mono text-slate-600 dark:text-slate-400">{fieldName}</span>
+                                  <span className="text-purple-650 dark:text-purple-400 italic">
                                     {fieldData.type}
                                     {fieldData.fields && ` [keys: ${fieldData.fields.slice(0, 3).join(', ')}]`}
                                   </span>
@@ -1027,19 +1200,19 @@ export default function App() {
         </aside>
 
         {/* Central Area: Chat & Execution Results */}
-        <main className="flex-1 flex flex-col min-w-0 bg-slate-950">
+        <main className="flex-1 flex flex-col min-w-0 bg-slate-100/40 dark:bg-slate-950">
           
           {/* Active DB Context Header */}
-          <div className="bg-slate-900/50 border-b border-slate-800/50 px-6 py-3 shrink-0 flex items-center justify-between">
+          <div className="bg-white dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800/50 px-4 md:px-6 py-3 shrink-0 flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
-              <Database className="w-4 h-4 text-indigo-400" />
+              <Database className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
               <div className="text-xs">
-                <span className="text-slate-400">Database Connection: </span>
-                <span className="font-bold text-slate-200">
+                <span className="text-slate-500 dark:text-slate-400">Database Connection: </span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
                   {activeConnection ? activeConnection.name : 'None Selected'}
                 </span>
                 {activeConnection && (
-                  <span className="ml-2 font-mono px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-400 border border-slate-700">
+                  <span className="ml-2 font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                     {activeConnection.type.toUpperCase()}
                   </span>
                 )}
@@ -1057,30 +1230,30 @@ export default function App() {
                       }));
                       setSelectedResult(null);
                     }}
-                    className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-rose-200 border border-slate-700/60 rounded-lg text-[10px] font-semibold transition"
+                    className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-rose-605 dark:text-rose-300 hover:text-rose-700 dark:hover:text-rose-200 border border-slate-200 dark:border-slate-700/60 rounded-lg text-[10px] font-semibold transition"
                     title="Clear Memory & Chat History"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                     <span>Clear Chat</span>
                   </button>
                 )}
                 <div className="flex items-center space-x-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${activeConnection.status === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className="text-[10px] text-slate-400 font-medium capitalize">{activeConnection.status}</span>
+                  <div className={`w-1.5 h-1.5 rounded-full ${activeConnection.status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium capitalize">{activeConnection.status}</span>
                 </div>
               </div>
             )}
           </div>
 
           {/* Chat Pane */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+          <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-6 space-y-4">
             {activeChat.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-650 dark:text-indigo-400 flex items-center justify-center mb-4">
                   <MessageSquare className="w-6 h-6 animate-bounce" />
                 </div>
-                <h3 className="font-bold text-slate-200 text-md">AI Query Assistant</h3>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                <h3 className="font-bold text-slate-800 dark:text-slate-200 text-md">AI Query Assistant</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                   Provide database connection parameters and start asking questions in natural language.
                   The AI Copilot will inspect schemas, formulate read-only queries, test them, and heal syntax errors automatically.
                 </p>
@@ -1100,24 +1273,24 @@ export default function App() {
                 const isUser = msg.role === 'user';
                 return (
                   <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-3xl rounded-2xl p-4 border transition duration-200 ${
+                    <div className={`max-w-3xl rounded-2xl p-3 md:p-4 border transition duration-200 ${
                       isUser 
                         ? 'bg-indigo-600 border-indigo-500 text-white rounded-br-none' 
-                        : 'bg-slate-900 border-slate-800 text-slate-200 rounded-bl-none shadow-md'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-none shadow-md'
                     }`}>
                       {/* Message Content */}
-                      <p className="text-xs whitespace-pre-wrap leading-relaxed">
+                      <div className="text-xs leading-relaxed">
                         {renderFormattedContent(msg.content)}
-                      </p>
+                      </div>
 
                       {/* Assistant query breakdown */}
                       {!isUser && msg.query && (
-                        <div className="mt-3.5 space-y-3.5 border-t border-slate-800/80 pt-3">
+                        <div className="mt-3.5 space-y-3.5 border-t border-slate-200 dark:border-slate-800/80 pt-3">
                           {/* Query text */}
                           <div>
-                            <div className="flex justify-between items-center mb-1 text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                            <div className="flex justify-between items-center mb-1 text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-bold">
                               <span className="flex items-center">
-                                <Terminal className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                                <Terminal className="w-3.5 h-3.5 mr-1 text-slate-500 dark:text-slate-400" />
                                 Generated {activeConnection?.type === 'postgres' ? 'SQL Query' : 'MQL Payload'}
                               </span>
                               <button
@@ -1125,54 +1298,54 @@ export default function App() {
                                   const queryText = typeof msg.query === 'string' ? msg.query : JSON.stringify(msg.query, null, 2);
                                   navigator.clipboard.writeText(queryText);
                                 }}
-                                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded text-[9px] font-semibold transition"
+                                className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 dark:hover:text-white border border-slate-200 dark:border-transparent rounded text-[9px] font-semibold transition"
                                 title="Copy query to clipboard"
                               >
                                 Copy
                               </button>
                             </div>
-                            <pre className="p-3 bg-slate-950 border border-slate-850 rounded-xl font-mono text-[11px] text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-5">
+                            <pre className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850/60 rounded-xl font-mono text-[11px] text-emerald-600 dark:text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-5">
                               {typeof msg.query === 'string' ? msg.query : JSON.stringify(msg.query, null, 2)}
                             </pre>
                           </div>
 
                           {/* Explanation */}
                           {msg.explanation && (
-                            <div className="text-xs bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/30 flex items-start space-x-2">
-                              <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                              <p className="text-slate-400 leading-normal text-[11px]"><span className="font-semibold text-slate-300">Explanation:</span> {msg.explanation}</p>
+                            <div className="text-xs bg-slate-50/50 dark:bg-slate-950/40 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800/30 flex items-start space-x-2">
+                              <Info className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5" />
+                              <p className="text-slate-600 dark:text-slate-400 leading-normal text-[11px]"><span className="font-semibold text-slate-700 dark:text-slate-300">Explanation:</span> {msg.explanation}</p>
                             </div>
                           )}
 
                           {/* Self Healing Logs triggers */}
                           {msg.attempts && msg.attempts.length > 0 && (
-                            <div className="border border-slate-850 rounded-xl overflow-hidden bg-slate-950/20">
+                            <div className="border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden bg-slate-50/20 dark:bg-slate-950/20">
                               <button 
                                 onClick={() => setShowAttemptsLogId(showAttemptsLogId === msg.id ? null : msg.id)}
-                                className="w-full flex items-center justify-between px-3 py-2 bg-slate-950/40 text-[10px] text-slate-400 font-bold hover:bg-slate-900/60 transition"
+                                className="w-full flex items-center justify-between px-3 py-2 bg-slate-50/40 dark:bg-slate-950/40 text-[10px] text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-900/60 transition"
                               >
-                                <span className="flex items-center text-indigo-300">
-                                  <Cpu className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
+                                <span className="flex items-center text-indigo-600 dark:text-indigo-300">
+                                  <Cpu className="w-3.5 h-3.5 mr-1.5 text-indigo-500 dark:text-indigo-400" />
                                   Gemini Self-Healing Timeline ({msg.attempts.length} attempts)
                                 </span>
                                 {showAttemptsLogId === msg.id ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                               </button>
                               
                               {(showAttemptsLogId === msg.id || msg.attempts.length > 1) && (
-                                <div className="p-3 bg-slate-950/60 border-t border-slate-900 space-y-3">
+                                <div className="p-3 bg-white dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-900 space-y-3">
                                   {msg.attempts.map((att, idx) => (
-                                    <div key={idx} className="relative pl-5 border-l border-slate-800 pb-1.5 last:pb-0">
-                                      <div className={`absolute -left-1.5 top-1.5 w-3 h-3 rounded-full border border-slate-950 ${
+                                    <div key={idx} className="relative pl-5 border-l border-slate-200 dark:border-slate-800 pb-1.5 last:pb-0">
+                                      <div className={`absolute -left-1.5 top-1.5 w-3 h-3 rounded-full border border-white dark:border-slate-950 ${
                                         att.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500'
                                       }`} />
-                                      <p className="text-[10px] font-bold text-slate-300">Attempt {att.attempt}: {att.status.toUpperCase()}</p>
+                                      <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300">Attempt {att.attempt}: {att.status.toUpperCase()}</p>
                                       
-                                      <div className="mt-1 font-mono text-[9px] text-slate-400 break-all p-1.5 bg-slate-950 border border-slate-900 rounded">
+                                      <div className="mt-1 font-mono text-[9px] text-slate-600 dark:text-slate-400 break-all p-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-900 rounded">
                                         {typeof att.query === 'string' ? att.query : JSON.stringify(att.query)}
                                       </div>
                                       
                                       {att.error && (
-                                        <p className="text-[9px] text-rose-400 font-mono mt-1 bg-rose-500/5 p-1.5 border border-rose-500/10 rounded">
+                                        <p className="text-[9px] text-rose-600 dark:text-rose-400 font-mono mt-1 bg-rose-500/5 p-1.5 border border-rose-500/10 rounded">
                                           Error: {att.error}
                                         </p>
                                       )}
@@ -1190,8 +1363,8 @@ export default function App() {
                                 onClick={() => setSelectedResult(msg)}
                                 className={`flex items-center space-x-1 px-3 py-1.5 text-xs font-semibold rounded-lg border transition ${
                                   selectedResult?.id === msg.id
-                                    ? 'bg-emerald-600/10 border-emerald-500/40 text-emerald-300'
-                                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-600 dark:text-emerald-300'
+                                    : 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                                 }`}
                               >
                                 <Table className="w-3.5 h-3.5" />
@@ -1208,9 +1381,9 @@ export default function App() {
             )}
             {queryLoading && (
               <div className="flex justify-start">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 px-4 rounded-bl-none shadow-md flex items-center space-x-3 text-xs text-slate-400">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 px-4 rounded-bl-none shadow-md flex items-center space-x-3 text-xs text-slate-500 dark:text-slate-400">
                   <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin shrink-0" />
-                  <span className="font-semibold text-slate-300">Thinking...</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Thinking...</span>
                 </div>
               </div>
             )}
@@ -1219,9 +1392,9 @@ export default function App() {
 
           {/* Results Grid Tab (Displays table if selected) */}
           {selectedResult && selectedResult.results && (
-            <div className="h-64 bg-slate-900 border-t border-slate-800 flex flex-col shrink-0 overflow-hidden relative shadow-inner animate-in slide-in-from-bottom duration-200">
-              <div className="flex justify-between items-center px-4 py-2 border-b border-slate-800 bg-slate-950 shrink-0">
-                <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider flex items-center">
+            <div className="h-64 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col shrink-0 overflow-hidden relative shadow-inner animate-in slide-in-from-bottom duration-200">
+              <div className="flex justify-between items-center px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
+                <h4 className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center">
                   <Table className="w-4 h-4 mr-1.5" />
                   Database Results Grid ({selectedResult.results.length} rows returned)
                 </h4>
@@ -1247,7 +1420,7 @@ export default function App() {
                           link.click();
                           document.body.removeChild(link);
                         }}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded text-[10px] font-semibold transition"
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 dark:hover:text-white rounded text-[10px] font-semibold border border-slate-200 dark:border-transparent transition"
                       >
                         Export CSV
                       </button>
@@ -1262,7 +1435,7 @@ export default function App() {
                           link.click();
                           document.body.removeChild(link);
                         }}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-350 hover:text-white rounded text-[10px] font-semibold transition"
+                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 dark:hover:text-white rounded text-[10px] font-semibold border border-slate-200 dark:border-transparent transition"
                       >
                         Export JSON
                       </button>
@@ -1270,7 +1443,7 @@ export default function App() {
                   )}
                   <button 
                     onClick={() => setSelectedResult(null)}
-                    className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition text-xs font-bold"
+                    className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-850 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition text-xs font-bold"
                   >
                     Close Grid
                   </button>
@@ -1282,34 +1455,36 @@ export default function App() {
                 {selectedResult.results.length === 0 ? (
                   <p className="text-xs text-slate-500 text-center py-12 italic">Empty dataset returned.</p>
                 ) : (
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-950 border-b border-slate-850">
-                        {Object.keys(selectedResult.results[0]).map((key) => (
-                          <th key={key} className="px-3 py-2 font-mono font-bold text-slate-300 select-all">{key}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-850">
-                      {selectedResult.results.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-slate-850/40 transition">
-                          {Object.values(row).map((val, cellIdx) => (
-                            <td key={cellIdx} className="px-3 py-2 text-slate-400 font-mono truncate max-w-xs" title={String(val)}>
-                              {val === null ? <span className="text-slate-600 font-sans italic">null</span> : 
-                               typeof val === 'object' ? JSON.stringify(val) : String(val)}
-                            </td>
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full text-left border-collapse text-xs min-w-[600px]">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
+                          {Object.keys(selectedResult.results[0]).map((key) => (
+                            <th key={key} className="px-3 py-2 font-mono font-bold text-slate-700 dark:text-slate-300 select-all">{key}</th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {selectedResult.results.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-100/60 dark:hover:bg-slate-850/40 transition">
+                            {Object.values(row).map((val, cellIdx) => (
+                              <td key={cellIdx} className="px-3 py-2 text-slate-600 dark:text-slate-400 font-mono truncate max-w-xs" title={String(val)}>
+                                {val === null ? <span className="text-slate-400 dark:text-slate-600 font-sans italic">null</span> : 
+                                 typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
           )}
 
           {/* Prompt Entry Box */}
-          <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0">
+          <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0">
             <form onSubmit={handleSendMessage} className="relative flex items-center">
               <input 
                 type="text" 
@@ -1323,13 +1498,13 @@ export default function App() {
                 value={currentPrompt}
                 onChange={(e) => setCurrentPrompt(e.target.value)}
                 disabled={!activeConnection || activeConnection.status !== 'connected' || queryLoading}
-                className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-indigo-500 rounded-xl pl-4 pr-16 py-3 text-xs text-slate-200 focus:outline-none transition leading-normal disabled:opacity-50"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 rounded-xl pl-4 pr-16 py-3 text-xs text-slate-800 dark:text-slate-200 focus:outline-none transition leading-normal disabled:opacity-50"
               />
               <div className="absolute right-2.5 flex items-center space-x-1">
                 <button
                   type="submit"
                   disabled={!activeConnection || activeConnection.status !== 'connected' || !currentPrompt.trim() || queryLoading}
-                  className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg p-2 transition font-bold"
+                  className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white rounded-lg p-2 transition font-bold"
                 >
                   <Play className="w-3.5 h-3.5" />
                 </button>
