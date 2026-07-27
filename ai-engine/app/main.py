@@ -26,7 +26,19 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
+
+# Startup event
+@app.on_event("startup")
+def startup_event():
+    """Load Gemini API Key from MongoDB on startup if present."""
+    try:
+        from app.database import get_setting
+        db_key = get_setting("GEMINI_API_KEY")
+        if db_key:
+            os.environ["GEMINI_API_KEY"] = db_key
+            print("Loaded GEMINI_API_KEY from MongoDB Atlas configuration database.")
+    except Exception as e:
+        print(f"Could not load GEMINI_API_KEY from MongoDB Atlas on startup: {e}")
 
 # Pydantic Schemas
 
@@ -161,6 +173,15 @@ def get_key_status():
     """Gets the current status of the GEMINI_API_KEY config (masked key and validity)."""
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
+        try:
+            from app.database import get_setting
+            api_key = get_setting("GEMINI_API_KEY", "")
+            if api_key:
+                os.environ["GEMINI_API_KEY"] = api_key
+        except Exception:
+            pass
+            
+    if not api_key:
         return {
             "status": "missing",
             "masked_key": "None",
@@ -201,7 +222,7 @@ def test_gemini_key(payload: TestKeyRequest):
 
 @app.post("/api/config/key")
 def update_gemini_key(payload: UpdateKeyRequest):
-    """Updates the GEMINI_API_KEY in the .env file and reloads it in-memory."""
+    """Updates the GEMINI_API_KEY in MongoDB and reloads it in-memory."""
     if payload.password != SETTINGS_PASSWORD:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -209,9 +230,18 @@ def update_gemini_key(payload: UpdateKeyRequest):
         )
     api_key = payload.gemini_api_key.strip()
     
+    from app.database import set_setting
+    
     # If the key is empty, clear it
     if not api_key:
-        update_env_file("GEMINI_API_KEY", "")
+        try:
+            set_setting("GEMINI_API_KEY", "")
+            os.environ["GEMINI_API_KEY"] = ""
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to clear key in database: {str(e)}"
+            )
         return {
             "success": True,
             "message": "GEMINI_API_KEY has been cleared.",
@@ -221,8 +251,15 @@ def update_gemini_key(payload: UpdateKeyRequest):
     # Validate the key first
     is_valid, err = validate_key(api_key)
     
-    # Update the key anyway
-    update_env_file("GEMINI_API_KEY", api_key)
+    # Update the key in MongoDB and in-memory environment
+    try:
+        set_setting("GEMINI_API_KEY", api_key)
+        os.environ["GEMINI_API_KEY"] = api_key
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save key to MongoDB: {str(e)}"
+        )
     
     return {
         "success": True,
