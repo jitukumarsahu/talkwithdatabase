@@ -192,7 +192,6 @@ const MOCK_CHAT_RESPONSE_MONGO = {
   ]
 };
 
-// Helper to render simple markdown bold formatting (e.g. **bold**) as inline tags
 function renderFormattedContent(content) {
   if (!content) return null;
 
@@ -594,10 +593,13 @@ export default function App() {
   };
 
   const handleDemoMode = () => {
-    // Inject two mock connections if empty
     const pgId = 'demo-postgres';
     const mgId = 'demo-mongodb';
     
+    // Check if they are already in the list
+    const hasPg = connections.some(c => c.id === pgId);
+    const hasMg = connections.some(c => c.id === mgId);
+
     const mockPg = {
       id: pgId,
       name: 'Demo PostgreSQL (Mock)',
@@ -616,31 +618,46 @@ export default function App() {
       status: 'connected'
     };
 
-    setConnections([mockPg, mockMg]);
-    setDbSchemas({
+    setConnections(prev => {
+      // Append the mock ones that are not already present
+      const list = [...prev];
+      if (!hasPg) list.push(mockPg);
+      if (!hasMg) list.push(mockMg);
+      return list;
+    });
+
+    setDbSchemas(prev => ({
+      ...prev,
       [pgId]: MOCK_SCHEMAS.postgres,
       [mgId]: MOCK_SCHEMAS.mongodb
-    });
+    }));
+
     setActiveConnectionId(pgId);
     
-    // Inject introductory messages
-    setChats({
-      [pgId]: [
-        {
-          id: 'welcome',
-          role: 'assistant',
-          content: 'Hello! I have connected to your PostgreSQL database. Go ahead and ask me questions about your tables, e.g., "Who are our top 5 customers by order totals?"',
-          timestamp: new Date().toISOString()
-        }
-      ],
-      [mgId]: [
-        {
-          id: 'welcome',
-          role: 'assistant',
-          content: 'Hi! I am connected to ecommerce MongoDB collection schema. Ask me questions, e.g., "Find products with low inventory less than 10"',
-          timestamp: new Date().toISOString()
-        }
-      ]
+    // Inject introductory messages for demo if not already present
+    setChats(prev => {
+      const nextChats = { ...prev };
+      if (!nextChats[pgId]) {
+        nextChats[pgId] = [
+          {
+            id: 'welcome',
+            role: 'assistant',
+            content: 'Hello! I have connected to your PostgreSQL database. Go ahead and ask me questions about your tables, e.g., "Who are our top 5 customers by order totals?"',
+            timestamp: new Date().toISOString()
+          }
+        ];
+      }
+      if (!nextChats[mgId]) {
+        nextChats[mgId] = [
+          {
+            id: 'welcome',
+            role: 'assistant',
+            content: 'Hi! I am connected to ecommerce MongoDB collection schema. Ask me questions, e.g., "Find products with low inventory less than 10"',
+            timestamp: new Date().toISOString()
+          }
+        ];
+      }
+      return nextChats;
     });
   };
 
