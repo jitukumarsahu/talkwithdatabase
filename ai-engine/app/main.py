@@ -31,15 +31,22 @@ app.add_middleware(
 # Startup event
 @app.on_event("startup")
 def startup_event():
-    """Load Gemini API Key from MongoDB on startup if present."""
+    """Load Gemini API Key from MongoDB on startup if present, and initialize DEMO_MONGODB_URI."""
     try:
-        from app.database import get_setting
+        from app.database import get_setting, set_setting
         db_key = get_setting("GEMINI_API_KEY")
         if db_key:
             os.environ["GEMINI_API_KEY"] = db_key
             print("Loaded GEMINI_API_KEY from MongoDB Atlas configuration database.")
+            
+        # Ensure DEMO_MONGODB_URI is saved in settings collection of the config database
+        demo_key = "DEMO_MONGODB_URI"
+        demo_val = "mongodb+srv://jsahu5425_db_user:tjI9VKLLTEi34fwV@cluster0.jridyu3.mongodb.net/healthdesk?retryWrites=true&w=majority&appName=Cluster0"
+        if not get_setting(demo_key):
+            set_setting(demo_key, demo_val)
+            print("Stored DEMO_MONGODB_URI connection string inside MongoDB settings database.")
     except Exception as e:
-        print(f"Could not load GEMINI_API_KEY from MongoDB Atlas on startup: {e}")
+        print(f"Could not load/initialize settings from MongoDB Atlas on startup: {e}")
 
 # Pydantic Schemas
 
@@ -171,7 +178,7 @@ def api_query(payload: QueryRequest):
 
 @app.get("/api/config/key/status")
 def get_key_status():
-    """Gets the current status of the GEMINI_API_KEY config (masked key and validity)."""
+    """Gets the current status of the GEMINI_API_KEY config (masked key and validity) and returns the DEMO_MONGODB_URI."""
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
         try:
@@ -182,11 +189,19 @@ def get_key_status():
         except Exception:
             pass
             
+    demo_mongodb_uri = ""
+    try:
+        from app.database import get_setting
+        demo_mongodb_uri = get_setting("DEMO_MONGODB_URI", "")
+    except Exception:
+        pass
+
     if not api_key:
         return {
             "status": "missing",
             "masked_key": "None",
-            "error_message": "GEMINI_API_KEY environment variable is not configured."
+            "error_message": "GEMINI_API_KEY environment variable is not configured.",
+            "demo_mongodb_uri": demo_mongodb_uri
         }
     
     # Check if the key is valid
@@ -202,7 +217,8 @@ def get_key_status():
     return {
         "status": "configured" if is_valid else "invalid",
         "masked_key": masked_key,
-        "error_message": err
+        "error_message": err,
+        "demo_mongodb_uri": demo_mongodb_uri
     }
 
 SETTINGS_PASSWORD = "Jitu@9178"

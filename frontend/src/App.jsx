@@ -352,11 +352,28 @@ export default function App() {
   const [testLoading, setTestLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState({ type: '', message: '' });
+  const [demoMongodbUri, setDemoMongodbUri] = useState('mongodb+srv://jsahu5425_db_user:tjI9VKLLTEi34fwV@cluster0.jridyu3.mongodb.net/healthdesk?retryWrites=true&w=majority&appName=Cluster0');
 
   // Connection settings
   const [connections, setConnections] = useState(() => {
     const saved = localStorage.getItem('db_connections');
-    return saved ? JSON.parse(saved) : [];
+    let parsed = saved ? JSON.parse(saved) : [];
+    // Migrate any mock MongoDB connections to the new actual connection details
+    parsed = parsed.map(conn => {
+      if (conn.type === 'mongodb' && (conn.isMock || conn.connectionString === 'mock' || conn.id === 'demo-mongodb')) {
+        return {
+          ...conn,
+          name: 'healthdesk',
+          connectionString: 'mongodb+srv://jsahu5425_db_user:tjI9VKLLTEi34fwV@cluster0.jridyu3.mongodb.net/healthdesk?retryWrites=true&w=majority&appName=Cluster0',
+          isMock: false,
+          status: 'disconnected'
+        };
+      }
+      return conn;
+    });
+    // Remove the demo PostgreSQL mock connection completely
+    parsed = parsed.filter(conn => conn.id !== 'demo-postgres' && !(conn.type === 'postgres' && conn.isMock));
+    return parsed;
   });
   const [activeConnectionId, setActiveConnectionId] = useState(null);
   
@@ -386,11 +403,7 @@ export default function App() {
     localStorage.setItem('db_connections', JSON.stringify(connections));
   }, [connections]);
 
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [chats, activeConnectionId]);
+  // Auto-scroll logic is defined below after activeChat is declared.
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -413,11 +426,32 @@ export default function App() {
         setKeyStatus(data.status);
         setMaskedKey(data.masked_key);
         setKeyError(data.error_message);
+        if (data.demo_mongodb_uri) {
+          setDemoMongodbUri(data.demo_mongodb_uri);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch Gemini key status", err);
     }
   }, [gatewayUrl, gatewayKey]);
+
+  // Fetch API key status & demo connection string on mount
+  useEffect(() => {
+    fetchKeyStatus();
+  }, [fetchKeyStatus]);
+
+  // Sync demo database connection string if it changes in database configuration
+  useEffect(() => {
+    setConnections(prev => prev.map(conn => {
+      if (conn.id === 'demo-mongodb' && conn.connectionString !== demoMongodbUri) {
+        return {
+          ...conn,
+          connectionString: demoMongodbUri
+        };
+      }
+      return conn;
+    }));
+  }, [demoMongodbUri]);
 
   useEffect(() => {
     if (showConfig) {
@@ -514,6 +548,24 @@ export default function App() {
   const activeSchema = activeConnection ? dbSchemas[activeConnection.id] : null;
   const activeChat = activeConnection ? (chats[activeConnection.id] || []) : [];
 
+  useEffect(() => {
+    if (activeChat && activeChat.length > 0) {
+      const lastMessage = activeChat[activeChat.length - 1];
+      if (lastMessage.role === 'assistant') {
+        const timer = setTimeout(() => {
+          const el = document.getElementById(`msg-${lastMessage.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chats, activeConnectionId, activeChat]);
+
   const handleAddConnection = async (e) => {
     e.preventDefault();
     if (!newConnName || !newConnUri) return;
@@ -593,72 +645,53 @@ export default function App() {
   };
 
   const handleDemoMode = () => {
-    const pgId = 'demo-postgres';
     const mgId = 'demo-mongodb';
     
     // Check if they are already in the list
-    const hasPg = connections.some(c => c.id === pgId);
     const hasMg = connections.some(c => c.id === mgId);
-
-    const mockPg = {
-      id: pgId,
-      name: 'Demo PostgreSQL (Mock)',
-      type: 'postgres',
-      connectionString: 'mock',
-      isMock: true,
-      status: 'connected'
-    };
 
     const mockMg = {
       id: mgId,
-      name: 'Demo MongoDB (Mock)',
+      name: 'healthdesk',
       type: 'mongodb',
-      connectionString: 'mock',
-      isMock: true,
-      status: 'connected'
+      connectionString: demoMongodbUri,
+      isMock: false,
+      status: 'disconnected'
     };
 
     setConnections(prev => {
-      // Append the mock ones that are not already present
-      const list = [...prev];
-      if (!hasPg) list.push(mockPg);
+      // Remove any existing postgres mock databases, and append the MongoDB one
+      const list = prev.filter(c => c.id !== 'demo-postgres' && !(c.type === 'postgres' && c.isMock));
       if (!hasMg) list.push(mockMg);
       return list;
     });
 
-    setDbSchemas(prev => ({
-      ...prev,
-      [pgId]: MOCK_SCHEMAS.postgres,
-      [mgId]: MOCK_SCHEMAS.mongodb
-    }));
+    setDbSchemas(prev => {
+      const nextSchemas = { ...prev };
+      delete nextSchemas['demo-postgres'];
+      return nextSchemas;
+    });
 
-    setActiveConnectionId(pgId);
+    setActiveConnectionId(mgId);
     
     // Inject introductory messages for demo if not already present
     setChats(prev => {
       const nextChats = { ...prev };
-      if (!nextChats[pgId]) {
-        nextChats[pgId] = [
-          {
-            id: 'welcome',
-            role: 'assistant',
-            content: 'Hello! I have connected to your PostgreSQL database. Go ahead and ask me questions about your tables, e.g., "Who are our top 5 customers by order totals?"',
-            timestamp: new Date().toISOString()
-          }
-        ];
-      }
       if (!nextChats[mgId]) {
         nextChats[mgId] = [
           {
             id: 'welcome',
             role: 'assistant',
-            content: 'Hi! I am connected to ecommerce MongoDB collection schema. Ask me questions, e.g., "Find products with low inventory less than 10"',
+            content: 'Hello! I have connected to your MongoDB database. Go ahead and ask me questions about your collections.\n\n**Here are some suggested questions you can try:**\n- "how many users are there"\n- "fetch all the user list in table format"\n- "how many doctors are in my db"',
             timestamp: new Date().toISOString()
           }
         ];
       }
       return nextChats;
     });
+
+    // Auto-connect/introspect the real MongoDB connection
+    handleConnect(mockMg);
   };
 
   const toggleTable = (tableKey) => {
@@ -1289,7 +1322,11 @@ export default function App() {
               activeChat.map((msg) => {
                 const isUser = msg.role === 'user';
                 return (
-                  <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                  <div 
+                    key={msg.id} 
+                    id={`msg-${msg.id}`}
+                    className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                  >
                     <div className={`max-w-3xl rounded-2xl p-3 md:p-4 border transition duration-200 ${
                       isUser 
                         ? 'bg-indigo-600 border-indigo-500 text-white rounded-br-none' 
@@ -1502,6 +1539,25 @@ export default function App() {
 
           {/* Prompt Entry Box */}
           <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shrink-0">
+            {activeConnection && activeConnection.id === 'demo-mongodb' && activeConnection.status === 'connected' && activeChat.length <= 1 && (
+              <div className="flex flex-wrap gap-2 mb-3 items-center">
+                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Suggestions:</span>
+                {[
+                  "how many users are there",
+                  "fetch all the user list in table format",
+                  "how many doctors are in my db"
+                ].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setCurrentPrompt(q)}
+                    className="px-2.5 py-1 text-[11px] bg-slate-50 dark:bg-slate-950 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-slate-600 dark:text-slate-400 hover:text-indigo-650 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-800 hover:border-indigo-500/30 rounded-lg transition font-medium"
+                  >
+                    "{q}"
+                  </button>
+                ))}
+              </div>
+            )}
             <form onSubmit={handleSendMessage} className="relative flex items-center">
               <input 
                 type="text" 
