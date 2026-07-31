@@ -39,10 +39,10 @@ def startup_event():
             os.environ["GEMINI_API_KEY"] = db_key
             print("Loaded GEMINI_API_KEY from MongoDB Atlas configuration database.")
             
-        # Ensure DEMO_MONGODB_URI is saved in settings collection of the config database
+        # Ensure DEMO_MONGODB_URI is saved in settings collection if loaded from env
         demo_key = "DEMO_MONGODB_URI"
-        demo_val = "mongodb+srv://jsahu5425_db_user:tjI9VKLLTEi34fwV@cluster0.jridyu3.mongodb.net/healthdesk?retryWrites=true&w=majority&appName=Cluster0"
-        if not get_setting(demo_key):
+        demo_val = os.getenv("DEMO_MONGODB_URI")
+        if demo_val and not get_setting(demo_key):
             set_setting(demo_key, demo_val)
             print("Stored DEMO_MONGODB_URI connection string inside MongoDB settings database.")
     except Exception as e:

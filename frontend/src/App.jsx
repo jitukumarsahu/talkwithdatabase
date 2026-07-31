@@ -352,7 +352,7 @@ export default function App() {
   const [testLoading, setTestLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState({ type: '', message: '' });
-  const [demoMongodbUri, setDemoMongodbUri] = useState('mongodb+srv://jsahu5425_db_user:tjI9VKLLTEi34fwV@cluster0.jridyu3.mongodb.net/healthdesk?retryWrites=true&w=majority&appName=Cluster0');
+  const [demoMongodbUri, setDemoMongodbUri] = useState('');
 
   // Connection settings
   const [connections, setConnections] = useState(() => {
@@ -364,7 +364,7 @@ export default function App() {
         return {
           ...conn,
           name: 'healthdesk',
-          connectionString: 'mongodb+srv://jsahu5425_db_user:tjI9VKLLTEi34fwV@cluster0.jridyu3.mongodb.net/healthdesk?retryWrites=true&w=majority&appName=Cluster0',
+          connectionString: '',
           isMock: false,
           status: 'disconnected'
         };
