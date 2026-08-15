@@ -10,6 +10,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Enable trust proxy to correctly identify client IPs behind reverse proxies (like Render)
+app.set('trust proxy', 1);
+
 // Enable CORS for frontend requests
 app.use(cors({
   origin: '*', // Allow all origins for development; restrict in production
